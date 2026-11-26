@@ -378,7 +378,8 @@ savepoint/
 │   ├── Savepoint.Agent/       # tray app, watcher, exe monitor, IPC server, UI dialogs
 │   └── Savepoint.Playnite/    # phase 6; thin plugin that talks to Agent over IPC
 ├── tests/
-│   └── Savepoint.Core.Tests/
+│   ├── Savepoint.Core.Tests/
+│   └── Savepoint.Playnite.Tests/
 ├── docs/DESIGN.md
 └── .github/workflows/release.yml
 ```
@@ -499,21 +500,33 @@ Definitions:
 
 The Agent serves a named pipe, `\\.\pipe\savepoint`, using JSON lines. Commands:
 
-- `pull {game_id}` blocks until the pull is done
-- `push {game_id, type}`
+- `pull {game_id}` blocks until the pull is done, or until the configured timeout runs out
+- `push {game_id, type}`, where `type` is `session`, `checkpoint` or `manual`
+- `restore {game_id}` restores the server head now, like the tray's "Restore latest"
+- `resolve {game_id, choice}` resolves a pending conflict; `choice` is `keep_local` or `take_server`
 - `status {game_id?}`
-- `list_games`
+- `list_games` returns `[{id, name, exe_names, sync_mode}]`
+
+Every response has `ok`. Sync commands also return `outcome`, which is the engine's result in snake_case (`no_change`, `pushed`, `restored`, `adopted_head`, `skipped_game_running`, `queued`, `offline`, `restore_offered`, `conflict_pending`, `conflict_resolved_local`, `conflict_resolved_server`, `busy` or `failed`), plus `message`. The pipe only accepts connections from the current user.
 
 ### Playnite plugin (phase 6)
 
-- A GenericPlugin that links a Playnite game to a Savepoint game. The mapping is stored in the plugin settings, chosen from a dropdown fed by `list_games`.
-- Before a game starts, it sends `pull` over the pipe and waits. If the Agent isn't running, it shows a warning and lets the game launch anyway.
-- After the game stops, it sends `push … session`.
+- A GenericPlugin for Playnite 10 (.NET Framework 4.6.2) that links a Playnite game to a Savepoint game. The mapping is stored in the plugin settings and can be made in three ways:
+  - from the game's right-click menu (Savepoint → Link to Savepoint game, with a suggested match first)
+  - by "Auto-link library", which matches by exe name, then by normalized name, and only links unambiguous matches
+  - from a dropdown in the settings page, fed by `list_games`
+- Before a linked game starts, it sends `pull` over the pipe and waits (default up to 45 s) behind a progress dialog. Then, depending on the outcome:
+  - **in sync, or restored:** the game launches. A restore shows an optional notification.
+  - **`restore_offered`** (manual mode): asks "Restore and play / Play with this PC's save / Cancel".
+  - **`conflict_pending`:** asks "Keep this PC's save / Use the other PC's save / Play now, decide later / Cancel". The choice is sent as `resolve`.
+  - **Agent not running, offline, timeout, or another failure:** the game launches anyway with a warning notification, or after asking, if the user chose that in settings. The plugin never blocks a launch on its own.
+- After the game stops, it sends `push … session`. The Agent's own exe monitor also pushes, and the second push is a no-op.
+- The right-click menu also has "Back up saves now", "Restore latest save" and "Unlink".
 
 ### Release
 
 - A GitHub Action (on a `v*` tag, running on `windows-latest`) runs `dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true`.
-- It attaches `Savepoint.exe` to a GitHub Release.
+- It attaches `Savepoint.exe` and the Playnite extension `Savepoint.Playnite.pext` to a GitHub Release.
 
 ---
 
