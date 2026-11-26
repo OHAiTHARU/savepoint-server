@@ -31,7 +31,7 @@ This document is the shared spec. The **API contract** section is the boundary b
 
 - Most games are not run through launchers, so there are no cloud saves to rely on.
 - Many save to emulator folders shared across games (e.g. `C:\Users\Public\Documents\Steam\CODEX\<appid>`, `%APPDATA%\Goldberg SteamEmu Saves\<appid>`, `%APPDATA%\GSE Saves\<appid>`). Others use normal locations (`Documents\My Games`, `%APPDATA%`, `%LOCALAPPDATA%`, `Saved Games`).
-- The server runs on the 8hzwanip homelab Docker stack.
+- The server is self-hosted with Docker, behind an HTTPS reverse proxy (e.g. Nginx Proxy Manager).
 
 ---
 
@@ -89,7 +89,7 @@ Version types:
 └───────────────────────┬───────────────────────────────┘
                         │ HTTPS, Bearer API key
                         ▼
-        Nginx Proxy Manager (savepoint.8hzwanip.com)
+        Reverse proxy, HTTPS (savepoint.example.com)
                         │
 ┌───────────────────────▼───────────────────────────────┐
 │  savepoint-server (Docker)                            │
@@ -349,11 +349,11 @@ job_runs(id, job, started_at, finished_at, status, summary, log)
 - **Compose settings:**
   - external network `media`
   - `PUID`/`PGID` 1000
-  - `TZ=America/Port_of_Spain`
+  - `TZ` set to the owner's local time zone (from `.env`; defaults to UTC)
   - volume `./data:/data`
 - **Deploy:** follows the usual workflow (git push → SSH pull → `deploy.sh`).
 - **Nginx Proxy Manager:**
-  - proxy host `savepoint.8hzwanip.com`, with SSL forced
+  - a proxy host for the server's domain (e.g. `savepoint.example.com`), with SSL forced
   - add `client_max_body_size 0;` in the Advanced tab, or uploads larger than 1 MB will fail
   - long `proxy_read_timeout` for large uploads
 - **Watchtower:** don't auto-update. The image is built locally.

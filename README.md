@@ -22,7 +22,7 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the full spec and the API contract.
 
 Interactive API docs are served at `/api/docs`.
 
-## Deploy (homelab)
+## Deploy (Docker)
 
 ```bash
 mkdir -p ~/apps && cd ~/apps
@@ -37,14 +37,14 @@ check. The compose file:
 
 - joins the external `media` network
 - runs as `PUID`/`PGID` 1000
-- sets `TZ=America/Port_of_Spain`, used for nightly job times and day/week retention buckets
+- sets `TZ` from `.env` (default UTC), used for nightly job times and day/week retention buckets
 - stores everything in `./data` (database, blobs, backups, session secret)
 - mounts `./rclone` read-only for the offsite backup
 - opts out of Watchtower, since the image is built locally
 
 ### Nginx Proxy Manager
 
-- Proxy host `savepoint.8hzwanip.com` → `savepoint:8080`, with SSL forced.
+- A proxy host for your domain (e.g. `savepoint.example.com`) → `savepoint:8080`, with SSL forced.
 - In the **Advanced** tab:
 
   ```nginx
