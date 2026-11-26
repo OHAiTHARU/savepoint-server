@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Job run · Savepoint{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back" href="/settings#jobs">← Settings</a>
+    <h1>{{ job_names.get(run.job, run.job) }}</h1>
+    <p class="muted">
+      <span class="status status-{{ run.status }}">{{ run.status }}</span>
+      started {{ run.started_at|localtime('%Y-%m-%d %H:%M:%S') }}
+      {% if run.finished_at %}· took {{ ((run.finished_at - run.started_at).total_seconds())|round(1) }} s{% endif %}
+    </p>
+  </div>
+</div>
+{% if run.summary %}<p>{{ run.summary }}</p>{% endif %}
+<pre class="log">{{ run.log or '(no output)' }}</pre>
+{% endblock %}

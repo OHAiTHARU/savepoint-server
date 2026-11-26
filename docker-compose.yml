@@ -1,0 +1,26 @@
+services:
+  savepoint:
+    build: .
+    image: savepoint-server:local
+    container_name: savepoint
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: America/Port_of_Spain
+      SAVEPOINT_DATA_DIR: /data
+      RCLONE_CONFIG: /config/rclone/rclone.conf
+    volumes:
+      - ./data:/data
+      # Optional, for the offsite backup. Mounted read-only.
+      - ./rclone:/config/rclone:ro
+    networks:
+      - media
+    labels:
+      # The image is built locally; Watchtower must not try to pull it.
+      com.centurylinklabs.watchtower.enable: "false"
+
+networks:
+  media:
+    external: true

@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}{{ game.name }} · {{ v.created_at|localtime }} · Savepoint{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back" href="/games/{{ game.id }}">← {{ game.name }}</a>
+    <h1>{{ TYPE_LABELS.get(v.type, v.type) }} · {{ v.created_at|localtime('%d %b %Y, %H:%M') }}</h1>
+    <p class="muted">
+      {% if v.id == head_id %}<span class="badge head">Head</span>{% endif %}
+      {% if v.pinned %}<span class="badge pin">Pinned</span>{% endif %}
+      {{ v.machine.name if v.machine else 'web UI' }} · {{ v.total_size|filesize }} · {{ v.file_count }} files
+      {% if source %}· copy of <a href="/versions/{{ source.id }}">{{ source.created_at|localtime }}</a>{% endif %}
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn" href="/api/v1/versions/{{ v.id }}/download" download>Download zip</a>
+    {% if v.id != head_id %}
+    <form method="post" action="/versions/{{ v.id }}/promote" class="inline" data-confirm="Make a copy of this version the new head?">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="btn primary" type="submit">Promote to head</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid-2 version-detail">
+  <section class="card stack">
+    <h2>Details</h2>
+    <dl class="kv">
+      <dt>Created (server)</dt><dd>{{ v.created_at|localtime('%Y-%m-%d %H:%M:%S') }} <span class="muted">{{ tz_name }}</span></dd>
+      <dt>Created (client)</dt><dd>{{ v.client_created_at|localtime('%Y-%m-%d %H:%M:%S') }}</dd>
+      <dt>Newest file</dt><dd>{{ v.latest_mtime|localtime('%Y-%m-%d %H:%M:%S') }}</dd>
+      <dt>Version id</dt><dd><code class="wrap">{{ v.id }}</code></dd>
+      {% if v.parent_version_id %}<dt>Parent</dt><dd><a href="/versions/{{ v.parent_version_id }}"><code class="wrap">{{ v.parent_version_id }}</code></a></dd>{% endif %}
+    </dl>
+    <form method="post" action="/versions/{{ v.id }}/meta" class="stack">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label><span>Tags <span class="muted">(comma separated)</span></span>
+        <input type="text" name="tags" value="{{ v.tag_names|join(', ') }}">
+      </label>
+      <label>Note
+        <textarea name="note" rows="2">{{ v.note or '' }}</textarea>
+      </label>
+      <div class="form-actions">
+        <button class="btn small primary" type="submit">Save</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="card stack">
+    <div class="diff-head">
+      <h2>Changes</h2>
+      <form method="get" action="/versions/{{ v.id }}" class="inline">
+        <label><span class="muted">against</span>
+          <select name="against" onchange="this.form.submit()">
+            {% if not other %}<option value="">(nothing: first version)</option>{% endif %}
+            {% for r in recent if r.id != v.id %}
+            <option value="{{ r.id }}" {{ 'selected' if other and other.id == r.id }}>
+              {{ r.created_at|localtime('%d %b %H:%M') }} · {{ TYPE_LABELS.get(r.type, r.type) }}{{ ' · head' if r.id == head_id }}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        <noscript><button class="btn small" type="submit">Compare</button></noscript>
+      </form>
+    </div>
+    <p class="muted small">
+      {{ diff.added|length }} added · {{ diff.changed|length }} changed · {{ diff.removed|length }} removed · {{ diff.unchanged_count }} unchanged
+    </p>
+    {% if not diff.added and not diff.changed and not diff.removed %}
+    <p class="muted">No differences.</p>
+    {% else %}
+    <ul class="diff">
+      {% for f in diff.added %}<li class="add"><span class="sym">+</span><code>{{ f.path }}</code><span class="size">{{ f.size|filesize }}</span></li>{% endfor %}
+      {% for f in diff.changed %}<li class="chg"><span class="sym">~</span><code>{{ f.path }}</code><span class="size">{{ f.old_size|filesize }} → {{ f.size|filesize }}</span></li>{% endfor %}
+      {% for f in diff.removed %}<li class="del"><span class="sym">−</span><code>{{ f.path }}</code><span class="size">{{ f.size|filesize }}</span></li>{% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+</div>
+
+<section class="card">
+  <details>
+    <summary><h2 class="inline-h">All files ({{ files|length }})</h2></summary>
+    <table class="files">
+      <thead><tr><th>Path</th><th>Size</th><th>Modified</th></tr></thead>
+      <tbody>
+      {% for f in files %}
+      <tr><td><code>{{ f.path }}</code></td><td class="num">{{ f.size|filesize }}</td><td>{{ f.mtime|localtime('%Y-%m-%d %H:%M:%S') }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </details>
+</section>
+{% endblock %}

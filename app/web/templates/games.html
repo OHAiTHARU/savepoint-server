@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Games · Savepoint{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Games</h1>
+  <a class="btn primary" href="/games/new">Add game</a>
+</div>
+
+{% if not games %}
+<div class="card empty">
+  <p>No games yet.</p>
+  <p class="muted">Add one here or from the tray app on a PC, then create a key for each machine under <a href="/machines">Machines</a>.</p>
+</div>
+{% else %}
+<div class="game-list">
+  {% for g in games %}
+  {% set s = stats.get(g.id, {}) %}
+  {% set h = heads.get(g.head_version_id) %}
+  <a class="card game-card" href="/games/{{ g.id }}">
+    <div class="game-card-main">
+      <h2>{{ g.name }}</h2>
+      <span class="badge mode-{{ g.sync_mode }}">{{ g.sync_mode }}</span>
+    </div>
+    <dl class="facts">
+      <div><dt>Head</dt><dd>{% if h %}<span title="{{ h.created_at|localtime }}">{{ h.created_at|reltime }}</span>{% else %}<span class="muted">no versions</span>{% endif %}</dd></div>
+      <div><dt>From</dt><dd>{{ h.machine.name if h and h.machine else ('web UI' if h else '—') }}</dd></div>
+      <div><dt>Versions</dt><dd>{{ s.get('version_count', 0) }}</dd></div>
+      <div><dt>Stored</dt><dd>{{ s.get('stored_size', 0)|filesize }}</dd></div>
+      <div><dt>Last activity</dt><dd>{{ (s.get('last_version_at') or g.updated_at)|reltime }}</dd></div>
+    </dl>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if deleted %}
+<details class="card deleted-games" id="deleted">
+  <summary>Deleted games ({{ deleted|length }})</summary>
+  <p class="muted">Versions of deleted games are kept until purged. Purging removes every version; the space is freed by the next GC run.</p>
+  {% for g in deleted %}
+  <div class="deleted-row">
+    <div>
+      <strong>{{ g.name }}</strong>
+      <span class="muted">deleted {{ g.deleted_at|reltime }} · {{ stats.get(g.id, {}).get('version_count', 0) }} versions</span>
+    </div>
+    <div class="actions">
+      <a class="btn small" href="/games/{{ g.id }}">View</a>
+      <form method="post" action="/games/{{ g.id }}/restore" class="inline">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn small" type="submit">Restore</button>
+      </form>
+      <form method="post" action="/games/{{ g.id }}/purge" class="inline purge-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="text" name="confirm_name" placeholder="Type name to purge" aria-label="Type {{ g.name }} to confirm" required>
+        <button class="btn small danger" type="submit">Purge</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</details>
+{% endif %}
+{% endblock %}

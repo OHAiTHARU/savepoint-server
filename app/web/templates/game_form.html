@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}{{ game.name ~ ' settings' if game else 'Add game' }} · Savepoint{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    {% if game %}<a class="back" href="/games/{{ game.id }}">← {{ game.name }}</a>{% else %}<a class="back" href="/">← Games</a>{% endif %}
+    <h1>{{ 'Settings' if game else 'Add game' }}</h1>
+  </div>
+</div>
+
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+
+<form method="post" action="{{ '/games/' ~ game.id ~ '/settings' if game else '/games/new' }}" class="card stack">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+
+  <label>Name
+    <input type="text" name="name" value="{{ form.name }}" required maxlength="200" placeholder="Elden Ring">
+  </label>
+
+  <fieldset>
+    <legend>Save roots</legend>
+    <p class="hint">Folders that hold this game's saves. Variables: <code>%APPDATA%</code> <code>%LOCALAPPDATA%</code> <code>%LOCALLOW%</code> <code>%USERPROFILE%</code> <code>%DOCUMENTS%</code> <code>%SAVEDGAMES%</code> <code>%PUBLIC%</code>, or an absolute path.</p>
+    <div id="roots" class="roots">
+      {% for r in form.roots %}
+      <div class="root-row">
+        <input type="text" name="root_alias" value="{{ r.alias }}" placeholder="alias" aria-label="Alias" class="alias" pattern="[A-Za-z0-9][A-Za-z0-9._\-]{0,63}">
+        <input type="text" name="root_path" value="{{ r.path_template }}" placeholder="%APPDATA%\EldenRing" aria-label="Path template" class="path">
+        <button type="button" class="icon-btn" data-remove-row title="Remove root">✕</button>
+      </div>
+      {% endfor %}
+    </div>
+    <template id="root-template">
+      <div class="root-row">
+        <input type="text" name="root_alias" placeholder="alias" aria-label="Alias" class="alias" pattern="[A-Za-z0-9][A-Za-z0-9._\-]{0,63}">
+        <input type="text" name="root_path" placeholder="%APPDATA%\EldenRing" aria-label="Path template" class="path">
+        <button type="button" class="icon-btn" data-remove-row title="Remove root">✕</button>
+      </div>
+    </template>
+    <button type="button" class="btn small" data-add-row="#roots" data-template="#root-template">Add root</button>
+  </fieldset>
+
+  <div class="grid-2">
+    <label><span>Exe names <span class="muted">(one per line)</span></span>
+      <textarea name="exe_names" rows="3" placeholder="eldenring.exe">{{ form.exe_names|join('\n') }}</textarea>
+    </label>
+    <label><span>Excludes <span class="muted">(globs, one per line)</span></span>
+      <textarea name="excludes" rows="3" placeholder="**/*.tmp&#10;**/shader_cache/**">{{ form.excludes|join('\n') }}</textarea>
+    </label>
+  </div>
+
+  <fieldset>
+    <legend>Sync mode</legend>
+    <label class="radio"><input type="radio" name="sync_mode" value="auto" {{ 'checked' if form.sync_mode == 'auto' }}> <span><strong>Auto</strong>: restore new saves and resolve conflicts automatically (newer side wins).</span></label>
+    <label class="radio"><input type="radio" name="sync_mode" value="manual" {{ 'checked' if form.sync_mode == 'manual' }}> <span><strong>Manual</strong>: ask before restoring or resolving a conflict.</span></label>
+  </fieldset>
+
+  <fieldset class="retention" data-retention>
+    <legend>Retention</legend>
+    <label class="radio"><input type="radio" name="retention_mode" value="default" {{ 'checked' if not form.retention }}> <span>Use the global default</span></label>
+    <label class="radio"><input type="radio" name="retention_mode" value="custom" {{ 'checked' if form.retention }}> <span>Custom for this game</span></label>
+    {% set pol = form.retention or default_retention %}
+    <div class="retention-fields">
+      {% for key, label, unit, help in retention_fields %}
+      <label>{{ label }}
+        <span class="input-unit">
+          <input type="number" min="0" name="ret_{{ key }}" value="{{ pol[key] if pol[key] is not none else '' }}" placeholder="no limit">
+          <span>{{ unit }}</span>
+        </span>
+        {% if help %}<small class="muted">{{ help }}</small>{% endif %}
+      </label>
+      {% endfor %}
+      <p class="hint">Blank means no limit for that rule. The head, pinned and tagged versions are never deleted.</p>
+    </div>
+  </fieldset>
+
+  <div class="form-actions">
+    <button class="btn primary" type="submit">{{ 'Save settings' if game else 'Add game' }}</button>
+  </div>
+</form>
+
+{% if game %}
+<section class="card stack" id="overrides">
+  <h2>Per-machine path overrides</h2>
+  <p class="hint">Use when a root lives somewhere else on one machine. Leave blank to use the template above.</p>
+  {% if not machines %}
+  <p class="muted">No machines yet. <a href="/machines">Add one</a> first.</p>
+  {% else %}
+  <form method="post" action="/games/{{ game.id }}/overrides" class="stack">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% for r in game.roots %}
+    <div class="override-group">
+      <div class="override-head"><code>{{ r.alias }}</code> <span class="muted">{{ r.path_template }}</span></div>
+      {% for m in machines %}
+      <label class="override-row">
+        <span>{{ m.name }}</span>
+        <input type="text" name="ovr__{{ r.alias }}__{{ m.id }}" value="{{ overrides.get((r.alias, m.id), '') }}" placeholder="(default)">
+      </label>
+      {% endfor %}
+    </div>
+    {% endfor %}
+    <div class="form-actions"><button class="btn" type="submit">Save overrides</button></div>
+  </form>
+  {% endif %}
+</section>
+
+{% if not game.deleted_at %}
+<section class="card danger-zone">
+  <h2>Delete game</h2>
+  <p class="hint">Machines stop syncing it. Versions are kept and the game can be restored until you purge it from the games list.</p>
+  <form method="post" action="/games/{{ game.id }}/delete" data-confirm="Delete {{ game.name }}?">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn danger" type="submit">Delete game</button>
+  </form>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

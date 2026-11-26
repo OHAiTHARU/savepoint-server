@@ -110,19 +110,30 @@ Version types:
 - **Clients** send `Authorization: Bearer <api_key>` on every request. Each key belongs to one machine.
 - **Web UI** uses a session cookie after password login.
 - Every endpoint accepts either form of auth, except machine and key management, which needs the session cookie.
+- Requests that use the session cookie and change something (`POST`, `PUT`, `PATCH`, `DELETE`) must also send the page's CSRF token in an `X-CSRF-Token` header. Bearer-key requests don't need it.
 
 ### Conventions
 
 - All IDs are UUIDv7 strings.
 - All times are ISO 8601 UTC.
-- Errors return `{ "error": { "code": "...", "message": "..." } }`.
+- Errors return `{ "error": { "code": "...", "message": "..." } }`. Some errors add fields inside `error`, e.g. `missing` for `missing_blobs` and `head_version_id` for `head_moved`.
+- Body validation errors return `422` with code `validation_error`.
+
+### Time and clocks
+
+Machines may be in different time zones and their clocks may drift. To keep comparisons correct:
+
+- **Every time a client sends must carry a UTC offset** (`2026-11-20T18:00:00-04:00` or `…Z`). The server converts everything to UTC. A time without an offset is rejected with `422`, so a machine's local time is never mistaken for UTC.
+- Clients should send their current clock as `X-Savepoint-Client-Time: <ISO 8601 with offset>` on requests. The server records each machine's clock offset (`clock_skew_ms` = client minus server) and shows it in the web UI.
+- `GET /machines/me` returns `server_time`, so a client can measure its own offset directly and correct for it.
+- When the client compares `L` and `H` in a conflict (§6), it compares UTC times: the latest file mtime of `L` against `H`'s `latest_mtime`.
 
 ### Machines
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/machines/me` | Returns the calling machine's `{id, name}`. Also updates `last_seen`. |
-| `GET` | `/machines` | UI only. |
+| `GET` | `/machines/me` | Machine key only. Returns `{id, name, server_time, clock_skew_ms}`. Also updates `last_seen`. |
+| `GET` | `/machines` | UI only. Returns `{machines: [{id, name, created_at, last_seen_at, revoked_at, clock_skew_ms, clock_checked_at}]}`. |
 | `POST` | `/machines` | UI only. Body: `{name}`. Returns `{id, name, api_key}`. The key is shown once and stored as a SHA-256 hash. |
 | `DELETE` | `/machines/{id}` | UI only. Revokes the key. |
 
@@ -130,12 +141,12 @@ Version types:
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/games` | Full list. Each game includes its roots with any path override for the calling machine applied (`resolved_template`). |
+| `GET` | `/games` | Returns `{games: [...]}`, excluding deleted games. Each game includes its roots with any path override for the calling machine applied (`resolved_template`). |
 | `POST` | `/games` | Create a game. |
 | `GET` | `/games/{id}` | |
 | `PATCH` | `/games/{id}` | |
 | `DELETE` | `/games/{id}` | Soft delete. Versions are kept until purged from the UI. |
-| `PUT` | `/games/{id}/roots/{alias}/override` | Body: `{path_template}`. Sets the path override for the calling machine. A null `path_template` clears it. |
+| `PUT` | `/games/{id}/roots/{alias}/override` | Body: `{path_template}`. Sets the path override for the calling machine. A null `path_template` clears it. With a session cookie, pass `?machine_id=` to choose the machine. |
 
 Game object:
 
@@ -151,12 +162,16 @@ Game object:
   "sync_mode": "auto",
   "retention": null,
   "head_version_id": "…",
-  "updated_at": "…"
+  "created_at": "…",
+  "updated_at": "…",
+  "deleted_at": null
 }
 ```
 
 - `sync_mode` is `"auto"` or `"manual"`.
-- `retention: null` means the game uses the global default (see §7).
+- `retention: null` means the game uses the global default (see §7). Otherwise it is a full retention object; omitted fields take their defaults.
+- Root aliases match `[A-Za-z0-9][A-Za-z0-9._-]{0,63}` and must be unique per game, ignoring case.
+- `PATCH` with `roots` replaces the whole list. Overrides for removed aliases are deleted.
 
 ### Heads (polling)
 
@@ -169,20 +184,20 @@ Game object:
 | Method | Path | Notes |
 |---|---|---|
 | `POST` | `/blobs/check` | Body: `{hashes: [...]}`. Returns `{missing: [...]}`. |
-| `PUT` | `/blobs/{sha256}` | Raw body. The server verifies the hash before storing. Idempotent. |
+| `PUT` | `/blobs/{sha256}` | Raw body. The server verifies the hash before storing (`400 hash_mismatch` otherwise). Idempotent: `201` when stored, `200` when it already existed. |
 | `GET` | `/blobs/{sha256}` | Raw content. |
 
 ### Versions
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/games/{id}/versions` | Query: `limit`, `before`, `type`, `tag`. Newest first. |
+| `GET` | `/games/{id}/versions` | Query: `limit` (default 50, max 500), `before` (a version id), `type`, `tag`. Newest first. Returns `{versions: [...], next_before}`; pass `next_before` as `before` for the next page (null on the last page). |
 | `POST` | `/games/{id}/versions` | Creates a version (see below). |
 | `GET` | `/versions/{id}` | Metadata plus manifest. |
 | `GET` | `/versions/{id}/diff?against={id}` | Lists added, changed and removed paths. Without `against`, compares with the previous version. |
 | `GET` | `/versions/{id}/download` | The whole version as a zip. |
 | `PATCH` | `/versions/{id}` | Body: `{tags?, note?, pinned?}`. |
-| `POST` | `/versions/{id}/promote` | Creates a `promoted` version copying this manifest and makes it head. Clients then pull it like any other new head. |
+| `POST` | `/versions/{id}/promote` | Creates a `promoted` version copying this manifest and makes it head (`201`). Clients then pull it like any other new head. Promoting the current head returns it with `"unchanged": true` (`200`). |
 | `DELETE` | `/versions/{id}` | UI only. Not allowed on the current head. |
 
 `POST /games/{id}/versions` body:
@@ -198,14 +213,50 @@ Game object:
 ```
 
 - `parent_version_id` is the version the client last synced. It is null for the first version.
-- Returns `400 missing_blobs` with a list of hashes if any referenced blob hasn't been uploaded.
-- If the manifest is identical to head's, returns `200` with the existing head and `"unchanged": true` instead of creating a duplicate.
+- `type` is one of `session`, `checkpoint`, `manual`, `offline`, `pre_restore`. Only `/promote` creates `promoted`.
+- `mtime` and `client_created_at` must include a UTC offset (see "Time and clocks").
+- Paths are `<root alias>/<relative path>` with forward slashes. The alias must be one of the game's roots. Empty, `.` and `..` segments are rejected, as are paths that differ only by case.
+- Returns `201` with the new version, or:
+  - `200` with the existing head and `"unchanged": true` if the manifest has the same paths and hashes as head's (mtimes alone don't count as a change). This is checked first.
+  - `400 missing_blobs` with `error.missing: [hashes]` if any referenced blob hasn't been uploaded.
+  - `400 size_mismatch` if a file's `size` differs from its blob's size.
+  - `400 invalid_path`, `unknown_root` or `duplicate_path` for bad paths.
+  - `409 head_moved` with `error.head_version_id` if `make_head` is true but `parent_version_id` is not the current head. Another machine pushed first, so this is a conflict. Upload again with `make_head: false`, then resolve it (§6).
+
+Version object:
+
+```json
+{
+  "id": "…",
+  "game_id": "…",
+  "parent_version_id": "…",
+  "source_version_id": null,
+  "type": "session",
+  "machine_id": "…",
+  "machine_name": "Gaming PC",
+  "created_at": "…",
+  "client_created_at": "…",
+  "file_count": 3,
+  "total_size": 28968912,
+  "latest_mtime": "…",
+  "tags": ["before-malenia"],
+  "note": null,
+  "pinned": false,
+  "is_head": true
+}
+```
+
+- `latest_mtime` is the newest file mtime in the manifest, in UTC. It is what "newer" means in a conflict.
+- `source_version_id` is set on `promoted` versions: it is the version that was copied.
+- `machine_id` is null for versions created from the web UI.
+- `GET /versions/{id}` adds `files: [{path, hash, size, mtime}]`.
+- `POST` responses add `unchanged`.
 
 ### Misc
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/health` | No auth. |
+| `GET` | `/health` | No auth. Returns `{status, server_time}`. |
 
 ---
 
@@ -229,14 +280,16 @@ games(id, name, exe_names_json, excludes_json, sync_mode, retention_json, head_v
       created_at, updated_at, deleted_at)
 game_roots(game_id, alias, path_template)
 root_overrides(game_id, alias, machine_id, path_template)
-machines(id, name, api_key_hash, created_at, last_seen_at, revoked_at)
-versions(id, game_id, parent_version_id, type, machine_id, created_at, client_created_at,
-         file_count, total_size, note, pinned)
+machines(id, name, api_key_hash, created_at, last_seen_at, revoked_at,
+         clock_skew_ms, clock_checked_at)
+versions(id, game_id, parent_version_id, source_version_id, type, machine_id, created_at,
+         client_created_at, file_count, total_size, latest_mtime, note, pinned)
 version_files(version_id, path, blob_hash, size, mtime)
 version_tags(version_id, tag)
 blobs(hash, size, stored_size, created_at)
 settings(key, value_json)           -- default retention, offsite config, etc.
-admin(id=1, password_hash)
+admin(id=1, password_hash, session_epoch)   -- epoch bump signs out other sessions
+job_runs(id, job, started_at, finished_at, status, summary, log)
 ```
 
 ### Blob storage
@@ -248,15 +301,16 @@ admin(id=1, password_hash)
 ### Admin password
 
 - On first start, the admin password is taken from the `SAVEPOINT_ADMIN_PASSWORD` env var and stored hashed.
-- After that it can be changed in the UI.
-- Login is rate-limited.
+- After that it can be changed in the UI. Changing it signs out every other session.
+- To recover a forgotten password, set `SAVEPOINT_RESET_ADMIN_PASSWORD=true` with a new `SAVEPOINT_ADMIN_PASSWORD` and restart.
+- Login is rate-limited per client IP (5 failures per 15 minutes).
 
 ### Jobs
 
 - **Retention + GC (nightly)**
   1. Apply retention rules (§7).
-  2. Delete blobs that no version references.
-  3. Log what was removed.
+  2. Delete blobs that no version references and that are older than a grace period (default 24 h, `SAVEPOINT_GC_GRACE_HOURS`). The grace period stops GC from deleting blobs a client uploaded seconds before creating its version.
+  3. Log what was removed in `job_runs`, viewable in the UI.
 - **Offsite backup (nightly, optional)**
   1. Run SQLite `.backup` to `/data/backup/savepoint.db`.
   2. Run `rclone sync /data/blobs` and the DB copy to the configured remote (e.g. `gdrive:savepoint`).
@@ -384,7 +438,7 @@ Definitions:
 5. If `L` ≠ `S` and `H` = `S`, there are local changes the server doesn't have (e.g. you played offline). Push `L` as type `offline`.
 6. If `L` ≠ `S` and `H` ≠ `S`, it's a **conflict**:
    1. Upload `L` with `make_head: false`, so it's preserved.
-   2. **auto mode:** the newer side wins, judged by the latest file mtime in each manifest. If `L` is newer, promote the uploaded local version to head. If `H` is newer, restore `H`.
+   2. **auto mode:** the newer side wins, judged by the latest file mtime in each manifest, compared in UTC (`H`'s `latest_mtime` against the newest mtime in `L`, minus this machine's measured clock offset). If `L` is newer, promote the uploaded local version to head. If `H` is newer, restore `H`.
    3. **manual mode:** show a toast offering "keep local / take server / decide in web UI". Do nothing until the user picks.
 
 **Push (session / checkpoint / manual):**
@@ -394,7 +448,7 @@ Definitions:
 3. Upload:
    1. `POST /blobs/check`
    2. `PUT` the missing blobs, in parallel with a limit of 4
-   3. `POST /versions` with `make_head: true`
+   3. `POST /versions` with `make_head: true`. If it returns `409 head_moved`, another machine pushed first: handle it as a conflict (step 6 above).
 4. Set `S` = the new version.
 5. If the server is unreachable, add the push to `pending_ops` and retry with backoff.
 
@@ -469,6 +523,7 @@ Retention is set as a global default, with optional per-game overrides:
 
 ```json
 {
+  "keep_newest": 5,
   "checkpoint_keep_hours": 48,
   "session_keep_all_days": 14,
   "session_daily_days": 90,
@@ -483,7 +538,7 @@ The nightly job applies these rules:
   - the current head
   - pinned versions
   - tagged versions
-  - the newest 5 versions regardless of age
+  - the newest `keep_newest` versions regardless of age
 - **Checkpoints, offline, pre-restore:** deleted after `checkpoint_keep_hours`.
 - **Session, manual, promoted:**
   - all kept for `session_keep_all_days`
@@ -491,6 +546,8 @@ The nightly job applies these rules:
   - then the newest per week until `session_weekly_days`
   - then deleted
 - **`max_versions`:** if set, this is a hard cap applied last, after the protected versions.
+- Every value is configurable, and `null` means no limit for that rule. For example, `checkpoint_keep_hours: null` keeps checkpoints forever, and `session_weekly_days: null` keeps one session per week forever.
+- "Per day" and "per week" (ISO weeks) use the server's `TZ`, so a late-night session counts toward the local day it was played on.
 
 ---
 
