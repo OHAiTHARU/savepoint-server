@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Sign in · Savepoint{% endblock %}
+{% block nav %}{% endblock %}
+{% block content %}
+<div class="login">
+  <div class="card">
+    <div class="login-brand">
+      <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true"><path fill="currentColor" d="M5 3h11l3 3v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm2 2v5h8V5H7Zm5 8a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"/></svg>
+      <h1>Savepoint</h1>
+    </div>
+    {% if not configured %}
+    <p class="muted">No admin password is set yet. Set <code>SAVEPOINT_ADMIN_PASSWORD</code> and restart the server.</p>
+    {% else %}
+    <form method="post" action="/login" class="stack">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="next" value="{{ next }}">
+      <label>Password
+        <input type="password" name="password" autocomplete="current-password" autofocus required>
+      </label>
+      {% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+      <button class="btn primary" type="submit">Sign in</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

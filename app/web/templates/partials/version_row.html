@@ -1,0 +1,54 @@
+{% set is_head = v.id == head_id %}
+<li class="version type-{{ v.type }}{{ ' is-head' if is_head }}{{ ' is-pinned' if v.pinned }}" id="v-{{ v.id }}">
+  <div class="version-main">
+    <div class="version-top">
+      <span class="badge type">{{ TYPE_LABELS.get(v.type, v.type) }}</span>
+      {% if is_head %}<span class="badge head">Head</span>{% endif %}
+      {% if v.pinned %}<span class="badge pin" title="Pinned: never deleted by retention">Pinned</span>{% endif %}
+      {% for t in v.tag_names %}<a class="tag" href="/games/{{ v.game_id }}?tag={{ t|urlencode }}">#{{ t }}</a>{% endfor %}
+    </div>
+    <div class="version-meta">
+      <time title="{{ v.created_at|localtime('%Y-%m-%d %H:%M:%S') }} ({{ tz_name }})">{{ v.created_at|localtime('%a %d %b %Y, %H:%M') }}</time>
+      <span class="muted">· {{ v.created_at|reltime }}</span>
+      <span class="muted">· {{ v.machine.name if v.machine else 'web UI' }}</span>
+      <span class="muted">· {{ v.total_size|filesize }}, {{ v.file_count }} file{{ '' if v.file_count == 1 else 's' }}</span>
+    </div>
+    {% if v.note %}<p class="note">{{ v.note }}</p>{% endif %}
+  </div>
+  <div class="version-actions">
+    <button class="icon-btn{{ ' on' if v.pinned }}" title="{{ 'Unpin' if v.pinned else 'Pin' }}"
+            hx-post="/versions/{{ v.id }}/pin" hx-target="#v-{{ v.id }}" hx-swap="outerHTML">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M16 3a1 1 0 0 1 .7 1.7L15 6.4v4.2l2.7 2.7A1 1 0 0 1 17 15h-4v5l-1 2-1-2v-5H7a1 1 0 0 1-.7-1.7L9 10.6V6.4L7.3 4.7A1 1 0 0 1 8 3h8Z"/></svg>
+      <span class="sr-only">{{ 'Unpin' if v.pinned else 'Pin' }}</span>
+    </button>
+    <a class="btn small" href="/versions/{{ v.id }}">Diff</a>
+    <a class="btn small" href="/api/v1/versions/{{ v.id }}/download" download>Zip</a>
+    <details class="menu">
+      <summary class="btn small" aria-label="More actions">More</summary>
+      <div class="menu-panel">
+        <form hx-post="/versions/{{ v.id }}/meta" hx-target="#v-{{ v.id }}" hx-swap="outerHTML" class="stack">
+          <label><span>Tags <span class="muted">(comma separated)</span></span>
+            <input type="text" name="tags" value="{{ v.tag_names|join(', ') }}" placeholder="boss-fight, 100%">
+          </label>
+          <label>Note
+            <textarea name="note" rows="2">{{ v.note or '' }}</textarea>
+          </label>
+          <button class="btn small primary" type="submit">Save</button>
+        </form>
+        <hr>
+        {% if not is_head %}
+        <button class="btn small" hx-post="/versions/{{ v.id }}/promote"
+                hx-confirm="Make a copy of this version the new head? Machines will restore it on their next sync.">
+          Promote to head
+        </button>
+        <button class="btn small danger" hx-post="/versions/{{ v.id }}/delete" hx-target="#v-{{ v.id }}" hx-swap="outerHTML"
+                hx-confirm="Delete this version permanently?">
+          Delete
+        </button>
+        {% else %}
+        <p class="muted small">This is the current head. Promote another version to roll back.</p>
+        {% endif %}
+      </div>
+    </details>
+  </div>
+</li>

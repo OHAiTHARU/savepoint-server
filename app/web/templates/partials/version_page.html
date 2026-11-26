@@ -1,0 +1,10 @@
+{% for v in versions %}
+{% include "partials/version_row.html" %}
+{% endfor %}
+{% if next_before %}
+<li class="load-more" id="load-more">
+  <button class="btn"
+          hx-get="/games/{{ game.id }}/versions?before={{ next_before }}{% if filter_type %}&type={{ filter_type }}{% endif %}{% if filter_tag %}&tag={{ filter_tag|urlencode }}{% endif %}"
+          hx-target="#load-more" hx-swap="outerHTML">Load older versions</button>
+</li>
+{% endif %}

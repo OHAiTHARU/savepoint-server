@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Settings · Savepoint{% endblock %}
+{% macro run_status(run) -%}
+{% if run %}
+<span class="status status-{{ run.status }}">{{ run.status }}</span>
+<a href="/settings/jobs/runs/{{ run.id }}">{{ run.started_at|reltime }}</a>
+{% if run.summary %}<span class="muted">· {{ run.summary }}</span>{% endif %}
+{% else %}<span class="muted">never run</span>{% endif %}
+{%- endmacro %}
+{% block content %}
+<div class="page-head"><h1>Settings</h1></div>
+
+<section class="card stack" id="storage">
+  <h2>Storage</h2>
+  <dl class="facts wide">
+    <div><dt>On disk (compressed)</dt><dd>{{ stats.stored_size|filesize }}</dd></div>
+    <div><dt>Unique content</dt><dd>{{ stats.logical_size|filesize }}</dd></div>
+    <div><dt>All versions, undeduplicated</dt><dd>{{ stats.referenced_size|filesize }}</dd></div>
+    <div><dt>Blobs</dt><dd>{{ stats.blob_count }}</dd></div>
+    <div><dt>Versions</dt><dd>{{ stats.version_count }}</dd></div>
+    <div><dt>Database</dt><dd>{{ stats.db_size|filesize }}</dd></div>
+    {% if stats.disk_total %}<div><dt>Disk free</dt><dd>{{ stats.disk_free|filesize }} of {{ stats.disk_total|filesize }}</dd></div>{% endif %}
+  </dl>
+</section>
+
+<section class="card stack" id="retention">
+  <h2>Default retention</h2>
+  <p class="hint">Applies to every game without its own policy. The head, pinned and tagged versions are never deleted. Blank means no limit.</p>
+  <form method="post" action="/settings/retention" class="stack">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="retention-fields">
+      {% for key, label, unit, help in retention_fields %}
+      <label>{{ label }}
+        <span class="input-unit">
+          <input type="number" min="0" name="ret_{{ key }}" value="{{ retention[key] if retention[key] is not none else '' }}" placeholder="no limit">
+          <span>{{ unit }}</span>
+        </span>
+        {% if help %}<small class="muted">{{ help }}</small>{% endif %}
+      </label>
+      {% endfor %}
+    </div>
+    <div class="form-actions"><button class="btn primary" type="submit">Save retention</button></div>
+  </form>
+</section>
+
+<section class="card stack" id="offsite">
+  <h2>Offsite backup</h2>
+  <p class="hint">Nightly at {{ schedule['offsite'] }} ({{ tz_name }}): copies the database and syncs all blobs to an rclone remote.
+    {% if not rclone_config %}<br><strong>No rclone config is mounted</strong>, so set <code>RCLONE_CONFIG</code> and mount it read-only.{% endif %}</p>
+  <form method="post" action="/settings/offsite" class="stack">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="checkbox"><input type="checkbox" name="enabled" {{ 'checked' if offsite.enabled }}> Enabled</label>
+    <label>Remote
+      <input type="text" name="remote" value="{{ offsite.remote }}" placeholder="gdrive:savepoint">
+    </label>
+    <div class="form-actions"><button class="btn primary" type="submit">Save</button></div>
+  </form>
+  <p>Last run: {{ run_status(last_offsite) }}</p>
+</section>
+
+<section class="card stack" id="jobs">
+  <h2>Jobs</h2>
+  <div class="job-row">
+    <div>
+      <strong>Retention + GC</strong> <span class="muted">nightly at {{ schedule['retention'] }}{% if next_runs.get('retention') %}, next {{ next_runs['retention']|reltime }}{% endif %}</span><br>
+      {{ run_status(last_retention) }}
+    </div>
+    <form method="post" action="/settings/jobs/retention/run" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="btn small" type="submit" {{ 'disabled' if running['retention'] }}>{{ 'Running…' if running['retention'] else 'Run now' }}</button>
+    </form>
+  </div>
+  <div class="job-row">
+    <div>
+      <strong>Offsite backup</strong> <span class="muted">nightly at {{ schedule['offsite'] }}{% if not offsite.enabled %} (disabled){% elif next_runs.get('offsite') %}, next {{ next_runs['offsite']|reltime }}{% endif %}</span><br>
+      {{ run_status(last_offsite) }}
+    </div>
+    <form method="post" action="/settings/jobs/offsite/run" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="btn small" type="submit" {{ 'disabled' if running['offsite'] }}>{{ 'Running…' if running['offsite'] else 'Run now' }}</button>
+    </form>
+  </div>
+  {% if runs %}
+  <details>
+    <summary>Recent runs</summary>
+    <table class="runs">
+      <tbody>
+      {% for r in runs %}
+      <tr>
+        <td><a href="/settings/jobs/runs/{{ r.id }}">{{ r.started_at|localtime }}</a></td>
+        <td>{{ job_names.get(r.job, r.job) }}</td>
+        <td><span class="status status-{{ r.status }}">{{ r.status }}</span></td>
+        <td class="muted">{{ r.summary or '' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% endif %}
+</section>
+
+<section class="card stack" id="password">
+  <h2>Change password</h2>
+  <form method="post" action="/settings/password" class="stack narrow">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Current password <input type="password" name="current" autocomplete="current-password" required></label>
+    <label>New password <input type="password" name="new" autocomplete="new-password" minlength="8" required></label>
+    <label>Confirm new password <input type="password" name="confirm" autocomplete="new-password" minlength="8" required></label>
+    <div class="form-actions"><button class="btn primary" type="submit">Change password</button></div>
+  </form>
+</section>
+{% endblock %}

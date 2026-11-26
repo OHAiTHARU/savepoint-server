@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ game.name }} · Savepoint{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back" href="/">← Games</a>
+    <h1>{{ game.name }}</h1>
+    <p class="muted">
+      <span class="badge mode-{{ game.sync_mode }}">{{ game.sync_mode }}</span>
+      {{ stats.get('version_count', 0) }} versions · {{ stats.get('stored_size', 0)|filesize }} stored
+      {% if exe_names %}· watches {{ exe_names|join(', ') }}{% endif %}
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn" href="/games/{{ game.id }}/settings">Settings</a>
+  </div>
+</div>
+
+{% if game.deleted_at %}
+<div class="flash flash-error">
+  This game was deleted {{ game.deleted_at|reltime }}. Machines no longer sync it.
+  <form method="post" action="/games/{{ game.id }}/restore" class="inline">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn small" type="submit">Restore it</button>
+  </form>
+</div>
+{% endif %}
+
+<form class="filters" method="get" action="/games/{{ game.id }}">
+  <div class="chips" role="group" aria-label="Filter by type">
+    <a class="chip{{ ' on' if not filter_type }}" href="/games/{{ game.id }}{% if filter_tag %}?tag={{ filter_tag|urlencode }}{% endif %}">All</a>
+    {% for t in types %}
+    <a class="chip{{ ' on' if filter_type == t }}" href="/games/{{ game.id }}?type={{ t }}{% if filter_tag %}&tag={{ filter_tag|urlencode }}{% endif %}">{{ TYPE_LABELS[t] }}</a>
+    {% endfor %}
+  </div>
+  {% if tags %}
+  <label class="tag-filter">
+    <span class="sr-only">Tag</span>
+    <select name="tag" onchange="this.form.submit()">
+      <option value="">All tags</option>
+      {% for t in tags %}<option value="{{ t }}" {{ 'selected' if t == filter_tag }}>#{{ t }}</option>{% endfor %}
+    </select>
+    {% if filter_type %}<input type="hidden" name="type" value="{{ filter_type }}">{% endif %}
+    <noscript><button class="btn small" type="submit">Filter</button></noscript>
+  </label>
+  {% endif %}
+</form>
+
+{% if versions %}
+<ol class="timeline">
+  {% include "partials/version_page.html" %}
+</ol>
+{% else %}
+<div class="card empty">
+  {% if filter_type or filter_tag %}
+  <p>No versions match this filter.</p>
+  {% else %}
+  <p>No versions yet.</p>
+  <p class="muted">The first backup appears here once a machine pushes this game.</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,12 @@
+[project]
+name = "savepoint-server"
+version = "1.0.0"
+description = "Self-hosted game save sync and versioned backup server"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
