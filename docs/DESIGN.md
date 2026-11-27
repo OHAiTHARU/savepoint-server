@@ -534,6 +534,17 @@ Every response has `ok`. Sync commands also return `outcome`, which is the engin
 
 - A GitHub Action (on a `v*` tag, running on `windows-latest`) runs `dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true`.
 - It attaches `Savepoint.exe` and the Playnite extension `Savepoint.Playnite.pext` to a GitHub Release.
+- It can also be started by hand (`workflow_dispatch` with a version), which creates the tag itself.
+
+### Self-update
+
+- The Agent checks GitHub's latest-release API a minute after startup and then daily (on by default; it can be turned off in Settings), plus on demand from the tray. Drafts and pre-releases are ignored.
+- If a newer `Savepoint.exe` exists, it shows a toast and a tray item. Installing:
+  1. downloads the exe to `%LOCALAPPDATA%\Savepoint\updates\` and verifies its size and the SHA-256 `digest` GitHub publishes for the asset
+  2. waits for any running sync to finish
+  3. renames the running exe to `Savepoint.exe.old`, copies the new one into place, starts it with `--after-update`, and exits
+- The new process waits for the old one to release the single-instance mutex, then deletes the `.old` file and the downloads.
+- If the exe's folder isn't writable, the Agent opens the release page instead.
 
 ---
 
