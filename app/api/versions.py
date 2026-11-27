@@ -7,7 +7,7 @@ from starlette.background import BackgroundTask
 from sqlalchemy.orm import Session
 
 from ..deps import Principal, get_ctx, get_db, require_auth, require_ui
-from ..errors import bad_request
+from ..errors import ApiError, bad_request
 from ..models import Game
 from ..schemas import VersionCreate, VersionPatch
 from ..services import games as games_svc
@@ -50,6 +50,8 @@ def create_version(
 ):
     ctx = get_ctx(request)
     game = games_svc.get_game(db, game_id)
+    if principal.machine_id and not games_svc.sync_enabled(game, principal.machine_id):
+        raise ApiError(403, "sync_disabled", "This game isn't set to sync on this machine")
     version, unchanged = svc.create_version(
         db, game, body, principal.machine_id, ctx.settings.max_manifest_files
     )

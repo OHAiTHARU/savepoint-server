@@ -264,3 +264,29 @@ def test_admin_password_reset_env(settings):
         token = csrf_from(c.get("/login").text)
         r = c.post("/login", data={"csrf": token, "password": "recovered-password"}, follow_redirects=False)
         assert r.status_code == 303
+
+
+def test_game_settings_sync_machines_and_stats(ui, pc, laptop, game):
+    gid = game["id"]
+    base = {
+        "name": "Elden Ring",
+        "root_alias": ["saves"],
+        "root_path": ["%APPDATA%\\EldenRing"],
+        "sync_mode": "auto",
+        "retention_mode": "default",
+    }
+    ui.post(f"/games/{gid}/settings", {**base, "sync_scope": "only", "sync_machine": [pc.id]})
+    assert pc.get(f"/api/v1/games/{gid}").json()["sync_machines"] == [pc.id]
+    assert "Gaming PC only" in ui.get("/").text
+    page = ui.get(f"/games/{gid}/settings").text
+    assert f'value="{pc.id}" checked' in page
+
+    ui.post(f"/games/{gid}/settings", {**base, "sync_scope": "all", "sync_machine": [pc.id]})
+    assert pc.get(f"/api/v1/games/{gid}").json()["sync_machines"] is None
+
+    v1 = pc.push(gid, {"saves/a": b"x" * 1000}).json()
+    pc.push(gid, {"saves/a": b"y" * 3000}, parent=v1["id"])
+    page = ui.get(f"/games/{gid}").text
+    assert "avg save 2.0 KB" in page
+    assert "Make head" in page
+    assert "syncs on All machines" in page

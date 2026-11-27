@@ -54,6 +54,21 @@
     <label class="radio"><input type="radio" name="sync_mode" value="manual" {{ 'checked' if form.sync_mode == 'manual' }}> <span><strong>Manual</strong>: ask before restoring or resolving a conflict.</span></label>
   </fieldset>
 
+  <fieldset data-sync-scope>
+    <legend>Sync on</legend>
+    {% set only = form.sync_machines is not none %}
+    <label class="radio"><input type="radio" name="sync_scope" value="all" {{ 'checked' if not only }}> <span><strong>All machines</strong>, including ones added later</span></label>
+    <label class="radio"><input type="radio" name="sync_scope" value="only" {{ 'checked' if only }}> <span><strong>Only these machines</strong></span></label>
+    <div class="machine-picks">
+      {% for m in machines %}
+      <label class="checkbox"><input type="checkbox" name="sync_machine" value="{{ m.id }}" {{ 'checked' if only and m.id in form.sync_machines }}> {{ m.name }}</label>
+      {% else %}
+      <p class="muted">No machines yet. <a href="/machines">Add one</a> first.</p>
+      {% endfor %}
+      <p class="hint">Other machines ignore this game: they don't back it up or restore it. Its versions stay on the server.</p>
+    </div>
+  </fieldset>
+
   <fieldset class="retention" data-retention>
     <legend>Retention</legend>
     <label class="radio"><input type="radio" name="retention_mode" value="default" {{ 'checked' if not form.retention }}> <span>Use the global default</span></label>

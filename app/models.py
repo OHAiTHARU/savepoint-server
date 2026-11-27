@@ -27,6 +27,9 @@ class Game(Base):
     excludes_json: Mapped[str] = mapped_column(Text, default="[]")
     sync_mode: Mapped[str] = mapped_column(String(16), default="auto")
     retention_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Machines this game syncs on: JSON list of machine ids, or NULL for all machines
+    # (including ones added later).
+    sync_machines_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     head_version_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("versions.id", ondelete="SET NULL", use_alter=True), nullable=True
     )

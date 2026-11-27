@@ -177,6 +177,7 @@ legend { font-weight: 600; padding: 0 0.3rem; }
 .facts.wide { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
 .facts dt { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
 .facts dd { margin: 0; font-weight: 500; }
+.facts .span-2 { grid-column: span 2; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1rem; margin: 0; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; min-width: 0; }
@@ -244,6 +245,7 @@ legend { font-weight: 600; padding: 0 0.3rem; }
   .root-row .path { grid-column: 1 / 2; }
   .root-row .icon-btn { grid-row: 1; grid-column: 2; }
 }
+.machine-picks { display: flex; flex-direction: column; gap: 0.4rem; padding-left: 1.6rem; }
 .retention-fields { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
 .override-group { border-top: 1px solid var(--border); padding-top: 0.6rem; display: flex; flex-direction: column; gap: 0.4rem; }
 .override-head { overflow-wrap: anywhere; }

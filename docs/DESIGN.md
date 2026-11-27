@@ -37,7 +37,7 @@ This document is the shared spec. The **API contract** section is the boundary b
 
 ## 2. Core concepts
 
-**Game.** A named entry with one or more save roots, the exe name(s) to watch, exclude patterns, sync mode and retention policy. Games are defined on the server, which is the master copy, and all machines see the same list.
+**Game.** A named entry with one or more save roots, the exe name(s) to watch, exclude patterns, sync mode, retention policy and the machines it syncs on (all machines by default). Games are defined on the server, which is the master copy, and all machines see the same list; a machine ignores games that aren't set to sync on it.
 
 **Save root.** A folder holding saves for a game. Each root has an alias (e.g. `saves`, `config`) and a path template. Templates use variables, and each machine can override a root's path.
 
@@ -146,6 +146,7 @@ Machines may be in different time zones and their clocks may drift. To keep comp
 | `GET` | `/games/{id}` | |
 | `PATCH` | `/games/{id}` | |
 | `DELETE` | `/games/{id}` | Soft delete. Versions are kept until purged from the UI. |
+| `PUT` | `/games/{id}/sync` | Body: `{enabled}`. Turns syncing this game on or off for the calling machine (with a session cookie, pass `?machine_id=`). Turning a machine off when `sync_machines` is `null` sets it to every other active machine. |
 | `PUT` | `/games/{id}/roots/{alias}/override` | Body: `{path_template}`. Sets the path override for the calling machine. A null `path_template` clears it. With a session cookie, pass `?machine_id=` to choose the machine. |
 
 Game object:
@@ -162,6 +163,8 @@ Game object:
   "sync_mode": "auto",
   "retention": null,
   "head_version_id": "…",
+  "sync_machines": null,
+  "sync_enabled": true,
   "created_at": "…",
   "updated_at": "…",
   "deleted_at": null
@@ -172,6 +175,8 @@ Game object:
 - `retention: null` means the game uses the global default (see §7). Otherwise it is a full retention object; omitted fields take their defaults.
 - Root aliases match `[A-Za-z0-9][A-Za-z0-9._-]{0,63}` and must be unique per game, ignoring case.
 - `PATCH` with `roots` replaces the whole list. Overrides for removed aliases are deleted.
+- `sync_machines` is `null` to sync on every machine, including ones added later, or a list of machine ids to sync only on those. It can be set with `POST`/`PATCH`; unknown ids return `400 unknown_machine`.
+- `sync_enabled` says whether the game syncs on the calling machine (always `true` for the web UI). Machines still see games with `sync_enabled: false`, so their app can offer to turn sync on, but they don't back them up or restore them, and the server refuses their uploads with `403 sync_disabled`.
 
 ### Heads (polling)
 
@@ -277,7 +282,7 @@ Server-rendered Jinja2 templates with htmx, so there is no frontend build step. 
 
 ```
 games(id, name, exe_names_json, excludes_json, sync_mode, retention_json, head_version_id,
-      created_at, updated_at, deleted_at)
+      sync_machines_json, created_at, updated_at, deleted_at)
 game_roots(game_id, alias, path_template)
 root_overrides(game_id, alias, machine_id, path_template)
 machines(id, name, api_key_hash, created_at, last_seen_at, revoked_at,
@@ -321,17 +326,18 @@ job_runs(id, job, started_at, finished_at, status, summary, log)
 
 1. **Login**
 2. **Games**
-   - Lists each game's name, head time, which machine made it, mode, total stored size, and last activity.
+   - Lists each game's name, head time, which machine made it, mode, average save size, space used on disk, last activity, and which machines it syncs on.
    - Lets you add a game.
 3. **Game detail**
    - A version timeline showing type, machine, time, size, tags, note and pin.
    - Filters by type and tag.
-   - Per-version actions: diff, download zip, tag, note, pin, promote to head, delete.
+   - Per-version actions: make head (promote), diff, download zip, tag, note, pin, delete.
 4. **Game settings**
    - Roots and per-machine overrides
    - Exe names
    - Excludes
    - Sync mode
+   - Machines it syncs on: all, or only selected ones
    - Retention override
 5. **Machines**
    - Create a machine (shows its key once)
@@ -479,6 +485,7 @@ Definitions:
   - excludes
   - mode
   - "this machine only" path override
+  - "Sync this game on this PC" (the tray menu also has "Stop syncing on this PC" / "Sync on this PC"; games that don't sync here are listed greyed out)
 - **Settings:**
   - server URL
   - API key

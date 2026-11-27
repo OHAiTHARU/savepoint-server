@@ -495,3 +495,58 @@ def test_error_shape_for_unknown_routes(pc):
     r = pc.get("/api/v1/versions/does-not-exist")
     assert r.status_code == 404
     assert r.json() == {"error": {"code": "not_found", "message": "Version not found"}}
+
+
+# ------------------------------------------------------------------ per-game machine selection
+
+
+def test_games_sync_on_all_machines_by_default(pc, laptop, game):
+    assert game["sync_machines"] is None
+    assert laptop.get(f"/api/v1/games/{game['id']}").json()["sync_enabled"] is True
+
+
+def test_sync_machines_limits_which_machines_sync(pc, laptop, game):
+    gid = game["id"]
+    r = pc.patch(f"/api/v1/games/{gid}", json={"sync_machines": [pc.id]})
+    assert r.status_code == 200
+    assert r.json()["sync_machines"] == [pc.id]
+    assert r.json()["sync_enabled"] is True
+    assert laptop.get(f"/api/v1/games/{gid}").json()["sync_enabled"] is False
+    # Still listed for the laptop, so its app can offer to turn sync on.
+    assert gid in [g["id"] for g in laptop.get("/api/v1/games").json()["games"]]
+
+    assert pc.push(gid, {"saves/a": b"pc"}).status_code == 201
+    r = laptop.push(gid, {"saves/a": b"laptop"})
+    assert r.status_code == 403
+    assert r.json()["error"]["code"] == "sync_disabled"
+
+    assert pc.patch(f"/api/v1/games/{gid}", json={"sync_machines": None}).json()["sync_machines"] is None
+    assert laptop.get(f"/api/v1/games/{gid}").json()["sync_enabled"] is True
+
+
+def test_sync_machines_rejects_unknown_ids(pc, game):
+    r = pc.patch(f"/api/v1/games/{game['id']}", json={"sync_machines": ["nope"]})
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "unknown_machine"
+
+
+def test_machine_can_toggle_its_own_sync(pc, laptop, make_machine, game):
+    gid = game["id"]
+    deck = make_machine("Steam Deck")
+    # Turning off from "all machines" keeps every other active machine.
+    r = laptop.put(f"/api/v1/games/{gid}/sync", json={"enabled": False})
+    assert r.status_code == 200
+    assert r.json()["sync_enabled"] is False
+    assert sorted(r.json()["sync_machines"]) == sorted([pc.id, deck.id])
+    # Turning back on adds just this machine.
+    r = laptop.put(f"/api/v1/games/{gid}/sync", json={"enabled": True})
+    assert sorted(r.json()["sync_machines"]) == sorted([pc.id, deck.id, laptop.id])
+    assert r.json()["sync_enabled"] is True
+
+
+def test_ui_toggles_sync_for_a_named_machine(ui, pc, laptop, game):
+    gid = game["id"]
+    assert ui.api("PUT", f"/api/v1/games/{gid}/sync", json={"enabled": False}).status_code == 400
+    r = ui.api("PUT", f"/api/v1/games/{gid}/sync?machine_id={laptop.id}", json={"enabled": False})
+    assert r.status_code == 200
+    assert laptop.get(f"/api/v1/games/{gid}").json()["sync_enabled"] is False

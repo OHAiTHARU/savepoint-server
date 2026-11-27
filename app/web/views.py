@@ -178,10 +178,12 @@ def games_page(request: Request, db: Session = Depends(get_db)):
     } if head_ids else {}
     live = [g for g in games if g.deleted_at is None]
     deleted = [g for g in games if g.deleted_at is not None]
+    machines = _machines(db)
+    sync_labels = {g.id: _sync_label(games_svc.sync_machines(g), machines) for g in games}
     return render(
         request,
         "games.html",
-        {"games": live, "deleted": deleted, "stats": stats, "heads": heads},
+        {"games": live, "deleted": deleted, "stats": stats, "heads": heads, "sync_labels": sync_labels},
     )
 
 
@@ -200,6 +202,9 @@ def _game_form_data(form) -> dict:
         "exe_names": lines("exe_names"),
         "excludes": lines("excludes"),
         "sync_mode": form.get("sync_mode", "auto"),
+        "sync_machines": (
+            [str(m) for m in form.getlist("sync_machine")] if form.get("sync_scope") == "only" else None
+        ),
     }
     if form.get("retention_mode") == "custom":
         data["retention"] = _retention_from_form(form)
@@ -229,6 +234,7 @@ def _game_form_context(db: Session, game: Optional[Game], data: Optional[dict] =
             "excludes": games_svc.excludes(game),
             "sync_mode": game.sync_mode,
             "retention": pol.model_dump() if pol else None,
+            "sync_machines": games_svc.sync_machines(game),
         }
     data = data or {
         "name": "",
@@ -237,11 +243,13 @@ def _game_form_context(db: Session, game: Optional[Game], data: Optional[dict] =
         "excludes": [],
         "sync_mode": "auto",
         "retention": None,
+        "sync_machines": None,
     }
     return {
         "game": game,
         "form": data,
         "error": error,
+        "machines": _machines(db),
         "default_retention": default.model_dump(),
         "retention_fields": RETENTION_FIELDS,
     }
@@ -292,6 +300,8 @@ def game_page(
     vtype = type if type in VERSION_TYPES else None
     versions = versions_svc.list_versions(db, game.id, limit=PAGE_SIZE, vtype=vtype, tag=tag or None)
     stats = games_svc.game_stats(db).get(game.id, {})
+    machines = _machines(db)
+    allowed = games_svc.sync_machines(game)
     return render(
         request,
         "game.html",
@@ -306,8 +316,19 @@ def game_page(
             "stats": stats,
             "next_before": versions[-1].id if len(versions) == PAGE_SIZE else None,
             "exe_names": games_svc.exe_names(game),
+            "sync_label": _sync_label(allowed, machines),
         },
     )
+
+
+def _sync_label(allowed: Optional[list[str]], machines: list[Machine]) -> str:
+    """'All machines', 'Gaming PC only', 'Gaming PC, Laptop' or 'No machines'."""
+    if allowed is None:
+        return "All machines"
+    names = [m.name for m in machines if m.id in allowed]
+    if not names:
+        return "No machines (backups paused)"
+    return names[0] + " only" if len(names) == 1 else ", ".join(names)
 
 
 @router.get("/games/{game_id}/versions", dependencies=[Depends(admin_required)])
@@ -507,7 +528,7 @@ def version_promote(request: Request, version_id: str, db: Session = Depends(get
     if unchanged:
         flash(request, "That version is already the head.")
     else:
-        flash(request, "Promoted to head. Machines will pick it up on their next poll.")
+        flash(request, "Made head. Machines syncing this game restore it on their next check.")
     target = f"/games/{v.game_id}"
     if is_htmx(request):
         return Response(status_code=204, headers={"HX-Redirect": target})

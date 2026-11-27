@@ -25,8 +25,10 @@
       <div><dt>Head</dt><dd>{% if h %}<span title="{{ h.created_at|localtime }}">{{ h.created_at|reltime }}</span>{% else %}<span class="muted">no versions</span>{% endif %}</dd></div>
       <div><dt>From</dt><dd>{{ h.machine.name if h and h.machine else ('web UI' if h else '—') }}</dd></div>
       <div><dt>Versions</dt><dd>{{ s.get('version_count', 0) }}</dd></div>
-      <div><dt>Stored</dt><dd>{{ s.get('stored_size', 0)|filesize }}</dd></div>
+      <div><dt>Avg save</dt><dd>{{ s.get('avg_save_size', 0)|filesize }}</dd></div>
+      <div><dt>Space used</dt><dd title="{{ s.get('total_size', 0)|filesize }} across all versions before dedupe and compression">{{ s.get('stored_size', 0)|filesize }}</dd></div>
       <div><dt>Last activity</dt><dd>{{ (s.get('last_version_at') or g.updated_at)|reltime }}</dd></div>
+      <div class="span-2"><dt>Syncs on</dt><dd>{{ sync_labels[g.id] }}</dd></div>
     </dl>
   </a>
   {% endfor %}

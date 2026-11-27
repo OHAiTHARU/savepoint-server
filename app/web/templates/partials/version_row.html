@@ -21,6 +21,12 @@
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M16 3a1 1 0 0 1 .7 1.7L15 6.4v4.2l2.7 2.7A1 1 0 0 1 17 15h-4v5l-1 2-1-2v-5H7a1 1 0 0 1-.7-1.7L9 10.6V6.4L7.3 4.7A1 1 0 0 1 8 3h8Z"/></svg>
       <span class="sr-only">{{ 'Unpin' if v.pinned else 'Pin' }}</span>
     </button>
+    {% if not is_head %}
+    <button class="btn small" hx-post="/versions/{{ v.id }}/promote"
+            hx-confirm="Make this version the head? Every machine syncing this game restores it on its next check (within a minute), unless the game is running there.">
+      Make head
+    </button>
+    {% endif %}
     <a class="btn small" href="/versions/{{ v.id }}">Diff</a>
     <a class="btn small" href="/api/v1/versions/{{ v.id }}/download" download>Zip</a>
     <details class="menu">
@@ -37,16 +43,12 @@
         </form>
         <hr>
         {% if not is_head %}
-        <button class="btn small" hx-post="/versions/{{ v.id }}/promote"
-                hx-confirm="Make a copy of this version the new head? Machines will restore it on their next sync.">
-          Promote to head
-        </button>
         <button class="btn small danger" hx-post="/versions/{{ v.id }}/delete" hx-target="#v-{{ v.id }}" hx-swap="outerHTML"
                 hx-confirm="Delete this version permanently?">
           Delete
         </button>
         {% else %}
-        <p class="muted small">This is the current head. Promote another version to roll back.</p>
+        <p class="muted small">This is the current head. Use "Make head" on another version to roll back.</p>
         {% endif %}
       </div>
     </details>

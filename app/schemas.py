@@ -54,6 +54,8 @@ class GameCreate(Strict):
     excludes: list[str] = Field(default_factory=list)
     sync_mode: SyncMode = "auto"
     retention: Optional[RetentionPolicy] = None
+    # None: sync on every machine (including future ones). A list: only these machine ids.
+    sync_machines: Optional[list[str]] = None
 
     @field_validator("name")
     @classmethod
@@ -87,6 +89,7 @@ class GamePatch(Strict):
     excludes: Optional[list[str]] = None
     sync_mode: Optional[SyncMode] = None
     retention: Optional[RetentionPolicy] = None
+    sync_machines: Optional[list[str]] = None
 
     @field_validator("name")
     @classmethod
@@ -106,6 +109,10 @@ class GamePatch(Strict):
 
 class OverrideIn(Strict):
     path_template: Optional[str] = Field(None, max_length=1000)
+
+
+class SyncToggle(Strict):
+    enabled: bool
 
 
 class MachineCreate(Strict):

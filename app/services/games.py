@@ -28,6 +28,58 @@ def retention(game: Game) -> Optional[RetentionPolicy]:
     return RetentionPolicy.model_validate(json.loads(game.retention_json))
 
 
+def sync_machines(game: Game) -> Optional[list[str]]:
+    """None means every machine; otherwise the machine ids this game syncs on."""
+    if game.sync_machines_json is None:
+        return None
+    return json.loads(game.sync_machines_json)
+
+
+def sync_enabled(game: Game, machine_id: Optional[str]) -> bool:
+    allowed = sync_machines(game)
+    return allowed is None or (machine_id is not None and machine_id in allowed)
+
+
+def _validate_machines(db: Session, ids: Optional[list[str]]) -> Optional[str]:
+    if ids is None:
+        return None
+    clean: list[str] = []
+    for mid in ids:
+        if mid not in clean:
+            clean.append(mid)
+    known = set(db.scalars(select(Machine.id).where(Machine.id.in_(clean)))) if clean else set()
+    unknown = [m for m in clean if m not in known]
+    if unknown:
+        raise ApiError(400, "unknown_machine", f"Unknown machine id(s): {', '.join(unknown)}")
+    return json.dumps(clean)
+
+
+def set_sync_enabled(db: Session, game: Game, machine_id: str, enabled: bool) -> None:
+    """Turn sync on or off for one machine, keeping the rest of the selection."""
+    if db.get(Machine, machine_id) is None:
+        raise not_found("Machine")
+    allowed = sync_machines(game)
+    if enabled:
+        if allowed is None or machine_id in allowed:
+            return
+        allowed.append(machine_id)
+    else:
+        if allowed is None:
+            # "All machines" minus this one: becomes an explicit list of the others.
+            allowed = list(
+                db.scalars(
+                    select(Machine.id).where(Machine.revoked_at.is_(None), Machine.id != machine_id)
+                )
+            )
+        elif machine_id in allowed:
+            allowed.remove(machine_id)
+        else:
+            return
+    game.sync_machines_json = json.dumps(allowed)
+    game.updated_at = utcnow()
+    db.commit()
+
+
 def get_game(db: Session, game_id: str, include_deleted: bool = False) -> Game:
     game = db.get(Game, game_id)
     if game is None or (game.deleted_at is not None and not include_deleted):
@@ -54,7 +106,8 @@ def overrides_for(db: Session, game_ids: list[str], machine_id: Optional[str]) -
     return {(r.game_id, r.alias): r.path_template for r in rows}
 
 
-def serialize(game: Game, overrides: Optional[dict] = None) -> dict:
+def serialize(game: Game, overrides: Optional[dict] = None, machine_id: Optional[str] = None) -> dict:
+    """`machine_id` is the calling machine (None for the web UI): it decides `sync_enabled`."""
     overrides = overrides or {}
     pol = retention(game)
     return {
@@ -73,6 +126,8 @@ def serialize(game: Game, overrides: Optional[dict] = None) -> dict:
         "sync_mode": game.sync_mode,
         "retention": pol.model_dump() if pol else None,
         "head_version_id": game.head_version_id,
+        "sync_machines": sync_machines(game),
+        "sync_enabled": sync_enabled(game, machine_id) if machine_id else True,
         "created_at": iso(game.created_at),
         "updated_at": iso(game.updated_at),
         "deleted_at": iso(game.deleted_at),
@@ -109,6 +164,7 @@ def create_game(db: Session, body: GameCreate) -> Game:
         excludes_json=json.dumps(body.excludes),
         sync_mode=body.sync_mode,
         retention_json=json.dumps(body.retention.model_dump()) if body.retention else None,
+        sync_machines_json=_validate_machines(db, body.sync_machines),
     )
     game.roots = [
         GameRoot(alias=r.alias, path_template=r.path_template, position=i)
@@ -133,6 +189,8 @@ def update_game(db: Session, game: Game, body: GamePatch) -> Game:
         game.sync_mode = body.sync_mode
     if "retention" in fields:
         game.retention_json = json.dumps(body.retention.model_dump()) if body.retention else None
+    if "sync_machines" in fields:
+        game.sync_machines_json = _validate_machines(db, body.sync_machines)
     game.updated_at = utcnow()
     db.commit()
     return game
@@ -189,18 +247,30 @@ def all_overrides(db: Session, game_id: str) -> list[RootOverride]:
 
 
 def game_stats(db: Session) -> dict[str, dict]:
-    """Per-game version count, last activity and stored size of referenced blobs.
+    """Per game: version count, last activity, sizes.
 
-    Stored size counts each blob once per game, so it reads as "what this game
-    costs on disk", though blobs shared between games are counted in each.
+    - avg_save_size: average size of one save (a version's files, uncompressed)
+    - total_size: all versions added up, as if each were stored in full
+    - stored_size: actual disk used, after dedupe and compression. Each blob counts
+      once per game, so blobs shared between games are counted in each.
     """
     stats: dict[str, dict] = {}
-    for game_id, count, last in db.execute(
-        select(Version.game_id, func.count(Version.id), func.max(Version.created_at)).group_by(
-            Version.game_id
-        )
+    for game_id, count, last, avg, total in db.execute(
+        select(
+            Version.game_id,
+            func.count(Version.id),
+            func.max(Version.created_at),
+            func.avg(Version.total_size),
+            func.sum(Version.total_size),
+        ).group_by(Version.game_id)
     ):
-        stats[game_id] = {"version_count": count, "last_version_at": last, "stored_size": 0}
+        stats[game_id] = {
+            "version_count": count,
+            "last_version_at": last,
+            "avg_save_size": int(avg or 0),
+            "total_size": int(total or 0),
+            "stored_size": 0,
+        }
     per_game_blobs = (
         select(Version.game_id.label("game_id"), VersionFile.blob_hash.label("h"))
         .join(VersionFile, VersionFile.version_id == Version.id)

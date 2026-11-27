@@ -51,8 +51,20 @@
     var fs = e.target.closest("[data-retention]");
     if (fs) syncRetention(fs);
   });
+  // Machine checkboxes only matter for "Only these machines".
+  function syncScope(fs) {
+    var only = fs.querySelector('input[name="sync_scope"][value="only"]');
+    var picks = fs.querySelector(".machine-picks");
+    if (!only || !picks) return;
+    picks.hidden = !only.checked;
+  }
+  document.addEventListener("change", function (e) {
+    var fs = e.target.closest("[data-sync-scope]");
+    if (fs) syncScope(fs);
+  });
   document.addEventListener("DOMContentLoaded", function () {
     document.querySelectorAll("[data-retention]").forEach(syncRetention);
+    document.querySelectorAll("[data-sync-scope]").forEach(syncScope);
   });
 
   // Close an open "More" menu when clicking elsewhere, or after an htmx action in it.

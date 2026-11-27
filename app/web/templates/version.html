@@ -15,9 +15,9 @@
   <div class="actions">
     <a class="btn" href="/api/v1/versions/{{ v.id }}/download" download>Download zip</a>
     {% if v.id != head_id %}
-    <form method="post" action="/versions/{{ v.id }}/promote" class="inline" data-confirm="Make a copy of this version the new head?">
+    <form method="post" action="/versions/{{ v.id }}/promote" class="inline" data-confirm="Make this version the head? Every machine syncing this game restores it on its next check.">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button class="btn primary" type="submit">Promote to head</button>
+      <button class="btn primary" type="submit">Make head</button>
     </form>
     {% endif %}
   </div>

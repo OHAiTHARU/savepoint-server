@@ -7,7 +7,9 @@
     <h1>{{ game.name }}</h1>
     <p class="muted">
       <span class="badge mode-{{ game.sync_mode }}">{{ game.sync_mode }}</span>
-      {{ stats.get('version_count', 0) }} versions · {{ stats.get('stored_size', 0)|filesize }} stored
+      {{ stats.get('version_count', 0) }} versions · avg save {{ stats.get('avg_save_size', 0)|filesize }} ·
+      <span title="{{ stats.get('total_size', 0)|filesize }} across all versions before dedupe and compression">{{ stats.get('stored_size', 0)|filesize }} space used</span>
+      · syncs on {{ sync_label }}
       {% if exe_names %}· watches {{ exe_names|join(', ') }}{% endif %}
     </p>
   </div>

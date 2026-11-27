@@ -5,21 +5,21 @@ from sqlalchemy.orm import Session
 
 from ..deps import Principal, get_db, require_auth
 from ..errors import ApiError
-from ..schemas import GameCreate, GamePatch, OverrideIn
+from ..schemas import GameCreate, GamePatch, OverrideIn, SyncToggle
 from ..services import games as svc
 
 router = APIRouter(tags=["games"])
 
 
 def _one(db: Session, game, principal: Principal) -> dict:
-    return svc.serialize(game, svc.overrides_for(db, [game.id], principal.machine_id))
+    return svc.serialize(game, svc.overrides_for(db, [game.id], principal.machine_id), principal.machine_id)
 
 
 @router.get("/games")
 def list_games(principal: Principal = Depends(require_auth), db: Session = Depends(get_db)):
     games = svc.list_games(db)
     overrides = svc.overrides_for(db, [g.id for g in games], principal.machine_id)
-    return {"games": [svc.serialize(g, overrides) for g in games]}
+    return {"games": [svc.serialize(g, overrides, principal.machine_id) for g in games]}
 
 
 @router.post("/games", status_code=201)
@@ -73,4 +73,24 @@ def put_override(
         raise ApiError(400, "machine_required", "machine_id is required with a web UI session")
     game = svc.get_game(db, game_id)
     svc.set_override(db, game, alias, target, body.path_template)
-    return svc.serialize(game, svc.overrides_for(db, [game.id], target))
+    return svc.serialize(game, svc.overrides_for(db, [game.id], target), target)
+
+
+@router.put("/games/{game_id}/sync")
+def put_sync(
+    game_id: str,
+    body: SyncToggle,
+    machine_id: Optional[str] = Query(None, description="Web UI only: which machine to change"),
+    principal: Principal = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """Turn syncing this game on or off for the calling machine (or ?machine_id= from the UI)."""
+    if principal.machine is not None:
+        target = principal.machine.id
+    elif machine_id:
+        target = machine_id
+    else:
+        raise ApiError(400, "machine_required", "machine_id is required with a web UI session")
+    game = svc.get_game(db, game_id)
+    svc.set_sync_enabled(db, game, target, body.enabled)
+    return svc.serialize(game, svc.overrides_for(db, [game.id], target), target)
